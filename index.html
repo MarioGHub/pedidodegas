@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pedidos de gas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+  :root {
+    --bg:#f3f6f5; --surface:#ffffff; --text:#14262c; --muted:#5d7178; --line:#d9e2e0;
+    --brand:#0d6b7c; --brand-ink:#ffffff; --pend:#b86a00; --pend-bg:#fff1d9; --ok:#27704a; --ok-bg:#dff3e7;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1b1f; --surface:#17272d; --text:#e8f0f1; --muted:#97aab0; --line:#2a3f46;
+            --brand:#4cc0d3; --brand-ink:#0f1b1f; --pend:#f0b255; --pend-bg:#3a2d12; --ok:#6fd49a; --ok-bg:#16382a; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:'Barlow',system-ui,sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width:1100px; margin:0 auto; padding:20px 16px 60px; }
+  header { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
+  h1 { font-size:1.6rem; margin:0; }
+  button, select, input { font:inherit; color:inherit; }
+  button { cursor:pointer; border:1px solid var(--line); background:var(--surface); padding:8px 14px; border-radius:8px; }
+  button.primary { background:var(--brand); color:var(--brand-ink); border-color:var(--brand); font-weight:600; }
+  :focus-visible { outline:3px solid var(--brand); outline-offset:2px; }
+  input, select { padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); width:100%; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:18px; }
+  .stat { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .stat b { display:block; font-size:2rem; line-height:1.1; }
+  .stat span { color:var(--muted); font-size:.9rem; }
+  .stat.pend b { color:var(--pend); } .stat.ok b { color:var(--ok); }
+  .filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin-bottom:14px; }
+  .filters label { font-size:.85rem; color:var(--muted); display:block; margin-bottom:4px; }
+  .wrap { overflow-x:auto; background:var(--surface); border:1px solid var(--line); border-radius:10px; }
+  table { width:100%; border-collapse:collapse; min-width:760px; }
+  th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:.85rem; color:var(--muted); font-weight:600; }
+  tr:last-child td { border-bottom:0; }
+  .badge { display:inline-block; padding:2px 9px; border-radius:99px; font-size:.82rem; font-weight:600; }
+  .badge.pend { background:var(--pend-bg); color:var(--pend); } .badge.ok { background:var(--ok-bg); color:var(--ok); }
+  .small { color:var(--muted); font-size:.85rem; }
+  .empty { padding:30px; text-align:center; color:var(--muted); }
+  dialog, .login { background:var(--surface); color:var(--text); border:1px solid var(--line); border-radius:12px; padding:20px; }
+  dialog { width:min(440px,92vw); } dialog::backdrop { background:rgba(0,0,0,.45); }
+  .login { max-width:360px; margin:12vh auto; }
+  .field { margin-bottom:12px; } .field label { display:block; font-size:.85rem; color:var(--muted); margin-bottom:4px; }
+  .row { display:flex; gap:10px; justify-content:flex-end; margin-top:16px; }
+  .err { color:#c0392b; min-height:1.2em; font-size:.9rem; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <!-- Inicio de sesión -->
+  <section id="login" class="login" hidden>
+    <h1>Pedidos de gas</h1>
+    <p class="small">Inicia sesión con tu cuenta del personal.</p>
+    <form id="loginForm">
+      <div class="field"><label for="email">Correo</label><input id="email" type="email" required autocomplete="username"></div>
+      <div class="field"><label for="pass">Contraseña</label><input id="pass" type="password" required autocomplete="current-password"></div>
+      <div class="err" id="loginErr"></div>
+      <button class="primary" type="submit" style="width:100%">Iniciar sesión</button>
+    </form>
+  </section>
+
+  <!-- Dashboard -->
+  <section id="app" hidden>
+    <header>
+      <h1>Pedidos de gas</h1>
+      <div>
+        <button class="primary" id="btnNuevo">Registrar pedido por llamada</button>
+        <button id="btnSalir">Cerrar sesión</button>
+      </div>
+    </header>
+
+    <div class="stats">
+      <div class="stat"><b id="sHoy">0</b><span>Pedidos hoy</span></div>
+      <div class="stat pend"><b id="sPend">0</b><span>Pendientes hoy</span></div>
+      <div class="stat ok"><b id="sOk">0</b><span>Entregados hoy</span></div>
+      <div class="stat"><b id="sSub">0</b><span>Con subsidio hoy</span></div>
+    </div>
+
+    <div class="filters">
+      <div><label for="fFecha">Fecha</label><input type="date" id="fFecha"></div>
+      <div><label for="fEstado">Estado</label>
+        <select id="fEstado"><option value="">Todos</option><option value="pend">Pendientes</option><option value="ok">Entregados</option></select></div>
+      <div><label for="fTipo">Tipo de gas</label>
+        <select id="fTipo"><option value="">Todos</option><option value="subsidio">Con subsidio</option><option value="sin_subsidio">Sin subsidio</option></select></div>
+      <div><label for="fBuscar">Buscar cliente</label><input type="search" id="fBuscar" placeholder="Nombre o teléfono"></div>
+    </div>
+
+    <div class="wrap">
+      <table>
+        <thead><tr><th>Hora</th><th>Cliente</th><th>Dirección</th><th>Gas</th><th>Cant.</th><th>Estado</th><th>Entregado</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="empty" id="empty" hidden>No hay pedidos con estos filtros.</div>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <form id="nuevoForm" method="dialog">
+    <h2 style="margin-top:0">Registrar pedido por llamada</h2>
+    <div class="field"><label for="nNombre">Nombre del cliente</label><input id="nNombre" required></div>
+    <div class="field"><label for="nTel">Teléfono</label><input id="nTel" type="tel"></div>
+    <div class="field"><label for="nDir">Dirección (opcional)</label><input id="nDir"></div>
+    <div class="field"><label for="nTipo">Tipo de gas</label>
+      <select id="nTipo"><option value="subsidio">Con subsidio</option><option value="sin_subsidio">Sin subsidio</option></select></div>
+    <div class="field"><label for="nCant">Cantidad</label><input id="nCant" type="number" min="1" value="1"></div>
+    <div class="err" id="nErr"></div>
+    <div class="row"><button type="button" id="nCancel">Cancelar</button><button class="primary" type="submit">Guardar pedido</button></div>
+  </form>
+</dialog>
+
+<script>
+  // ====== CONFIGURA ESTO ======
+  const SUPABASE_URL = "https://TU-PROYECTO.supabase.co";
+  const SUPABASE_ANON_KEY = "TU_ANON_PUBLIC_KEY";
+  // ============================
+
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const $ = (id) => document.getElementById(id);
+  const hoy = () => new Date().toLocaleDateString("en-CA");
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+  let pedidos = [];
+
+  async function mostrar() {
+    const { data } = await db.auth.getSession();
+    const ok = !!data.session;
+    $("login").hidden = ok; $("app").hidden = !ok;
+    if (ok) { $("fFecha").value ||= hoy(); await cargar(); suscribir(); }
+  }
+
+  async function cargar() {
+    const desde = new Date(Date.now() - 30 * 864e5).toLocaleDateString("en-CA");
+    const { data, error } = await db.from("pedidos").select("*").gte("fecha", desde)
+      .order("fecha", { ascending: false }).order("hora", { ascending: false });
+    if (error) { console.error(error); return; }
+    pedidos = data; pintar();
+  }
+
+  function pintar() {
+    const h = hoy(), delDia = pedidos.filter((p) => p.fecha === h);
+    $("sHoy").textContent = delDia.length;
+    $("sPend").textContent = delDia.filter((p) => !p.entregado).length;
+    $("sOk").textContent = delDia.filter((p) => p.entregado).length;
+    $("sSub").textContent = delDia.filter((p) => p.tipo_gas === "subsidio").length;
+
+    const f = $("fFecha").value, e = $("fEstado").value, t = $("fTipo").value, q = $("fBuscar").value.trim().toLowerCase();
+    const lista = pedidos.filter((p) =>
+      (!f || p.fecha === f) &&
+      (!e || (e === "ok") === p.entregado) &&
+      (!t || p.tipo_gas === t) &&
+      (!q || (p.nombre_cliente ?? "").toLowerCase().includes(q) || (p.telefono ?? "").includes(q)));
+
+    $("empty").hidden = lista.length > 0;
+    $("tbody").innerHTML = lista.map((p) => `
+      <tr>
+        <td>${esc(p.hora?.slice(0, 5))}<div class="small">${esc(p.origen === "llamada" ? "Llamada" : "WhatsApp")}</div></td>
+        <td>${esc(p.nombre_cliente || "Sin nombre")}<div class="small">${esc(p.telefono)}</div></td>
+        <td>${esc(p.direccion || "—")}</td>
+        <td>${p.tipo_gas === "subsidio" ? "Subsidio" : p.tipo_gas === "sin_subsidio" ? "Sin subsidio" : "<span class='small'>Por confirmar</span>"}</td>
+        <td>${esc(p.cantidad)}</td>
+        <td><span class="badge ${p.entregado ? "ok" : "pend"}">${p.entregado ? "Entregado" : "Pendiente"}</span></td>
+        <td><input type="checkbox" data-id="${esc(p.id)}" ${p.entregado ? "checked" : ""} aria-label="Marcar como entregado" style="width:auto"></td>
+      </tr>`).join("");
+  }
+
+  $("tbody").addEventListener("change", async (ev) => {
+    const cb = ev.target.closest("input[data-id]"); if (!cb) return;
+    const { error } = await db.from("pedidos").update({
+      entregado: cb.checked, fecha_entrega: cb.checked ? new Date().toISOString() : null,
+    }).eq("id", cb.dataset.id);
+    if (error) { alert("No se pudo actualizar: " + error.message); cb.checked = !cb.checked; return; }
+    await cargar();
+  });
+
+  let canal;
+  function suscribir() {
+    if (canal) return;
+    canal = db.channel("pedidos").on("postgres_changes", { event: "*", schema: "public", table: "pedidos" }, cargar).subscribe();
+  }
+
+  ["fFecha", "fEstado", "fTipo"].forEach((id) => $(id).addEventListener("change", pintar));
+  $("fBuscar").addEventListener("input", pintar);
+
+  $("loginForm").addEventListener("submit", async (ev) => {
+    ev.preventDefault(); $("loginErr").textContent = "";
+    const { error } = await db.auth.signInWithPassword({ email: $("email").value, password: $("pass").value });
+    if (error) $("loginErr").textContent = "Correo o contraseña incorrectos."; else mostrar();
+  });
+  $("btnSalir").addEventListener("click", async () => { await db.auth.signOut(); location.reload(); });
+
+  $("btnNuevo").addEventListener("click", () => $("dlg").showModal());
+  $("nCancel").addEventListener("click", () => $("dlg").close());
+  $("nuevoForm").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const ahora = new Date();
+    const { error } = await db.from("pedidos").insert({
+      fecha: ahora.toLocaleDateString("en-CA"), hora: ahora.toLocaleTimeString("en-GB"),
+      nombre_cliente: $("nNombre").value.trim(), telefono: $("nTel").value.trim() || null,
+      direccion: $("nDir").value.trim() || null, tipo_gas: $("nTipo").value,
+      cantidad: Number($("nCant").value) || 1, origen: "llamada",
+    });
+    if (error) { $("nErr").textContent = "No se pudo guardar: " + error.message; return; }
+    $("nuevoForm").reset(); $("dlg").close(); cargar();
+  });
+
+  mostrar();
+</script>
+</body>
+</html>
